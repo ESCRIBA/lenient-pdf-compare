@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<project basedir="./" name="PDFCompare" default="zip">
+
+	<property name="main-class" value="de.ee.hezel.PDFCompareMain" />
+	<property name="project-name" value="PDFCompare" />
+	<property name="library-directory" value="lib" />
+	<property name="source-directory" value="src" />
+	<property name="build-directory" value="build" />
+	<property name="distribution-directory" value="dist" />
+	<property name="resources-directory" value="res" />
+	<property name="classes-directory" value="${build-directory}/classes" />
+	<property name="jar-file" value="${build-directory}/${project-name}.jar" />
+	<property name="zip-file" value="${distribution-directory}/${project-name}.zip" />
+	
+	<path id="pdfcompare-classpath">
+		<pathelement location="${library-directory}" />
+		<fileset dir="${library-directory}">
+		   <include name="**/*.jar"/>
+		</fileset>
+	</path>
+	
+	<target name="init">
+		<delete dir="${build-directory}" />
+		<mkdir dir="${build-directory}" />
+	</target>
+	
+	<target name="compile" depends="init">
+		<mkdir dir="${classes-directory}" />
+		<javac srcdir="${source-directory}" destdir="${classes-directory}" includeantruntime="false" debug="on" source="1.6">
+			<classpath refid="pdfcompare-classpath" />
+		</javac>
+		
+		<copy todir="${classes-directory}">
+			<fileset dir="${source-directory}" excludes="**/*.java"/>
+		</copy>
+	</target>
+	
+	<target name="jar" depends="compile" >
+		<delete file="${jar-file}" />
+		<jar jarfile="${jar-file}" basedir="${classes-directory}" manifest="manifest.txt" />
+	</target>
+
+	<target name="zip.init">
+		<delete dir="${distribution-directory}" />
+		<mkdir dir="${distribution-directory}" />
+	</target>
+	
+	<target name="zip" depends="jar, zip.init" > 
+		<zip destfile="${zip-file}">
+		    <zipfileset dir="${library-directory}" prefix="${library-directory}"/>
+		    <zipfileset dir="${resources-directory}"/>
+			<zipfileset dir="${build-directory}" includes="${project-name}.jar"/>
+		</zip>
+	</target>
+	
+</project>

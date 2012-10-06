@@ -1,0 +1,2 @@
+Main-Class: de.ee.hezel.PDFCompareMain
+Class-Path: lib/commons-io-1.4.jar lib/log4j-1.2.16.jar

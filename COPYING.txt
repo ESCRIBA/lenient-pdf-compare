@@ -1,0 +1,18 @@
+Copyright:
+	Copyright (c) 2012, E&E information consultants AG. All rights reserved.
+	
+Authors:
+	Peter Jentsch
+	Nico Hezel
+
+License: 
+	LGPL-3 full text of the licenses can be found in the licenses\PDFCompare\LICENSE.txt.
+	
+	
+3rd party libraries:
+	ICEpdf 4.3.2
+	PDFRenderer 0.9.1
+	Commons-IO 1.4
+	
+	The licenses for the 3rd Party libraries can be found in the "licenses" folder.
+	The modifications done to the ICEpdf source code can be found under "modification".
