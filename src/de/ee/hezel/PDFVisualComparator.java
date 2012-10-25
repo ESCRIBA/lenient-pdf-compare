@@ -48,6 +48,7 @@ import com.sun.pdfview.PDFPage;
 import de.ee.hezel.logger.ICompareLogger;
 import de.ee.hezel.model.PDFInfoHolder;
 import de.ee.hezel.model.PDFPageHolder;
+import de.ee.hezel.model.PDFInfoHolder.DifferenceType;
 import de.ee.hezel.model.pdfelemente.PDFEntryHolder;
 import de.ee.hezel.model.pdfelemente.PDFImageHolder;
 import de.ee.hezel.model.pdfelemente.PDFTextHolder;
@@ -62,197 +63,119 @@ public class PDFVisualComparator extends AbstractPDFCompare {
 	static Logger log = Logger.getLogger(PDFVisualComparator.class.getName());
 	
 	// a list of int arrays which gets reused
-    ThreadLocal<Map<Integer, intArray>> intarrays = new ThreadLocal<Map<Integer,intArray>>();
-	final static double IMAGE_SCALER = 2.1389;
-	private PDFInfoHolder pdfInfoHolder;
-
-	public PDFVisualComparator(ICompareLogger diffLog, PDFInfoHolder pdfih)
+    private PDFInfoHolder pdfInfoHolder;
+    private PDFVisualiseDifference pdfVisualiseDifference;
+	private File targetFolder;
+	
+	public PDFVisualComparator(File outputDir, ICompareLogger diffLog, PDFInfoHolder pdfih)
 	{
+		pdfVisualiseDifference = new PDFVisualiseDifference(outputDir, diffLog, pdfih);
+		
 		setDifferenceLogger(diffLog);
 		pdfInfoHolder = pdfih;
+		targetFolder = outputDir;
 	}
 	
     /**
-     * start visual comparision
+     * start visual comparison
      * 
      * @param targetFolder
      */
-    public void compare(File targetFolder) {
+    public void compare() {
+    	
+    	// could not find the new generated pdf document
+    	if(pdfInfoHolder.getDifferent() == DifferenceType.MISSINGDOCUMENT)
+    	{
+    		missingDocument(pdfInfoHolder.getPDF1());
+    		return;
+    	}
+    	
         PDFFile pdf1 = pdfInfoHolder.getPDF1();
         PDFFile pdf2 = pdfInfoHolder.getPDF2();
 
-        int numPgs = pdf1.getNumPages();
-        for (int i = 1; i <= numPgs; i++) {
+        // find all differences on all pages
+        for (int i = 1; i <= pdf1.getNumPages(); i++) {
         	// get the current page
             PDFPage pagePDF1 = pdf1.getPage(i);
             PDFPage pagePDF2 = pdf2.getPage(i);
 
-            if(pagePDF1 == null || pagePDF2 == null)
+            // missing a page
+            if(pagePDF2 == null)
             {
+            	missingPage(pagePDF1, i);
             	continue;
             }
             
-            try {
-                // convert the page in a image
-                BufferedImage pageImgPDF1 = convertPage(pagePDF1);
-                BufferedImage pageImgPDF2 = convertPage(pagePDF2);
-              
+            // find real visual differences
+            findVisualDifferences(i, pagePDF1, pagePDF2, targetFolder);
+        }
+
+        // if there is a difference on one of the 
+        // pages mark the entire pdf as different
+        pdfInfoHolder.checkDifference();
+    }
+    
+    private void missingPage(PDFPage pagePDF, int pageNum)
+    {
+    	try {
+        	BufferedImage diffimg = pdfVisualiseDifference.drawPageInRed(pagePDF);
+        	
+    		// save the result
+    		String pathName = targetFolder+"/"+pdfInfoHolder.getFilename() + "_pdf/";
+    		File dir = new File(pathName);  dir.mkdirs();		
+    		ImageIO.write(diffimg, "PNG", new File(pathName+"page_"+pageNum+".png"));
+		} catch (Exception e) {
+			log.error(e.getMessage(), e);
+		}
+    }
+    
+    private void missingDocument(PDFFile pdf)
+    {
+        for (int i = 1; i <= pdf.getNumPages(); i++) {
+        	// get the current page
+            PDFPage pagePDF = pdf.getPage(i);
+            missingPage(pagePDF, i);
+        }
+    }
+    
+    private void findVisualDifferences(int pageNum, PDFPage pagePDF1, PDFPage pagePDF2, File targetFolder)
+    {
+    	 try {
+    		 	// convert the page in a image
+    		 	BufferedImage pageImgPDF1 = PDFVisualiseDifference.convertPage(pagePDF1);
+    		 	BufferedImage pageImgPDF2 = PDFVisualiseDifference.convertPage(pagePDF2);
+           
 	            // get the structure elements for this page
-	            PDFPageHolder pdfPageHolder1 = pdfInfoHolder.getPDFStructure1().getPageHolder(i - 1);
-	            PDFPageHolder pdfPageHolder2 = pdfInfoHolder.getPDFStructure2().getPageHolder(i - 1);
+	            PDFPageHolder pdfPageHolder1 = pdfInfoHolder.getPDFStructure1().getPageHolder(pageNum - 1);
+	            PDFPageHolder pdfPageHolder2 = pdfInfoHolder.getPDFStructure2().getPageHolder(pageNum - 1);
 	
 	            Set<PDFEntryHolder> entryHolders = new HashSet<PDFEntryHolder>(pdfPageHolder1.getElements());
 	            entryHolders.addAll(pdfPageHolder2.getElements());
 	
 	            // compare both images only at those place where a entryholder says
-	            comparePDFEntries(pageImgPDF1, pageImgPDF2, entryHolders, i);
+	            comparePDFEntries(pageImgPDF1, pageImgPDF2, entryHolders, pageNum);
 	
 	            // check if a difference was found
 	            pdfPageHolder1.checkDifference();
 	            pdfPageHolder2.checkDifference();
 	
 	            // mark the found differences visual
-	            if (targetFolder != null && (pdfPageHolder1.isDifferent() || pdfPageHolder2.isDifferent())) {
-	            	
+	            if (targetFolder != null && (pdfPageHolder1.isDifferent() || pdfPageHolder2.isDifferent())) 
+	            {
 	            	// create a illustration which shows the differences
-	                BufferedImage diffimg = visualiseDifferences(pageImgPDF1, pageImgPDF2, entryHolders);
+	                BufferedImage diffimg = pdfVisualiseDifference.visualiseDifferences(pageImgPDF1, pageImgPDF2, entryHolders);
 	
 	                // save the difference image if desired
 	                String pathName = targetFolder + "/" + pdfInfoHolder.getFilename() + "_pdf/";
 	                File dir = new File(pathName);
 	                dir.mkdirs();
-	                try {
-	                    ImageIO.write(diffimg, "PNG", new File(pathName + "page_" + i + ".png"));
-	                } catch (IOException e) {
-	                    throw new RuntimeException("Unable to write difference to file: " + e.getMessage(), e);
-	                }
+	                ImageIO.write(diffimg, "PNG", new File(pathName + "page_" + pageNum + ".png"));
 	            }
-            
+         
 			} catch (Exception e) {
 				log.error(pdfInfoHolder.getFilename()+": "+e.getMessage(), e);
 			}
-        }
-
-        // check if in the pdf document one of the pages does have a 
-        // difference. if to mark the entire pdf as different
-        pdfInfoHolder.checkDifference();
     }
-
-	/**
-	 * Create a difference image, based on the elements in the pdf.
-	 * Elements which exists on the first pdf but not on the 2nd
-	 * are colored in green. The other ways around gets colored in
-	 * red. If both element cover each other they stay as they are.
-	 * 
-	 * If the content of an image is different the image gets 
-	 * a read rectangle. Different text elements get underlined red.
-	 * 
-	 * @param pageImgPDF1
-	 * @param entryHolders
-	 * @throws IOException 
-	 */
-	private BufferedImage visualiseDifferences(BufferedImage pageImgPDF1, BufferedImage pageImgPDF2, Set<PDFEntryHolder> entryHolders) 
-	{
-		int pageWidth = pageImgPDF1.getWidth();
-		int pageHeight = pageImgPDF1.getHeight();
-		
-		// 1-dimensional pixel array
-		int[] img1Pixels = getPixelArray(1, pageWidth*pageHeight); 
-		int[] img2Pixels = getPixelArray(2, pageWidth*pageHeight); 
-		int[] diffPixels = getPixelArray(3, pageWidth*pageHeight);
-		
-		// copy all pixels from the image to the pixel array
-		pageImgPDF1.getRGB(0, 0, pageWidth, pageHeight, img1Pixels, 0, pageWidth);
-		pageImgPDF2.getRGB(0, 0, pageWidth, pageHeight, img2Pixels, 0, pageWidth);
-		
-		// copy the image to the output pixel array
-		System.arraycopy(img1Pixels, 0, diffPixels, 0, pageWidth*pageHeight);
-		
-		// output image
-		BufferedImage diffimg = new BufferedImage(pageWidth, pageHeight, BufferedImage.TYPE_INT_RGB);
-		
-		for (PDFEntryHolder pdfEntryHolder : entryHolders) 
-		{
-			// check if there are any differences
-			if(!pdfEntryHolder.isDifferent())
-				continue;
-			
-			// dimension of the entry holder with the current zoom factor
-			int entryX = (int)(pdfEntryHolder.getX() * IMAGE_SCALER);
-			int entryY = (int)(pdfEntryHolder.getY() * IMAGE_SCALER);
-			int entryWidth = (int)(pdfEntryHolder.getWidth() * IMAGE_SCALER);
-			int entryHeight = (int)(pdfEntryHolder.getHeight() * IMAGE_SCALER);
-			
-			// draw pixel red or green, if the elements does not cover each other
-			for (int y = ((entryY < 0) ? 0 : entryY); y < entryY+entryHeight; y++) {
-                if (y*pageWidth >= img1Pixels.length) {
-                    log.error(pdfInfoHolder.getFilename()+": graphics boundaries exceed page boundaries. y=" + y + ", pageWidth=" + pageWidth);
-                    break;
-                }
-
-				for (int x = ((entryX < 0) ? 0 : entryX); x < entryX+entryWidth; x++) {
-					
-					// position in the 1d pixel array
-					int pos = y * pageWidth + x;
-
-                    if (pos >= img1Pixels.length) {
-                        log.error(pdfInfoHolder.getFilename()+": graphics boundaries exceed page boundaries. y=" + y + ", x=" + x + ", pageWidth=" + pageWidth);
-                        break;
-                    }
-                    
-                    // calc gray value for 1st image
-					int r_img1 = (img1Pixels[pos] >> 16) & 255;
-					int g_img1 = (img1Pixels[pos] >> 8) & 255;
-					int b_img1 = (img1Pixels[pos]) & 255;
-					int grey_img1 = (r_img1 + b_img1 + g_img1) / 3;
-
-					// calc gray value for 2nd image
-					int r_img2 = (img2Pixels[pos] >> 16) & 255;
-					int g_img2 = (img2Pixels[pos] >> 8) & 255;
-					int b_img2 = (img2Pixels[pos]) & 255;
-					int grey_img2 = (r_img2 + b_img2 + g_img2) / 3;
-				
-					int diff = (grey_img1<grey_img2) ? grey_img2-grey_img1 : grey_img1-grey_img2;
-					
-					// decide for red, green or nothing
-					if(diff > 5 && grey_img1 < grey_img2)
-						diffPixels[pos] = (0xFF << 24) | (0xFF << 16) | (grey_img1 << 8) | grey_img1;
-					else if(diff > 5 && grey_img1 > grey_img2)
-						diffPixels[pos] = (0xFF << 24) | (grey_img2 << 16) | (0xFF << 8) | grey_img2;
-				}
-			}
-		}
-		
-		// save the result in an image
-		diffimg.setRGB(0, 0, pageWidth, pageHeight, diffPixels, 0, pageWidth);
-		
-		// draw a red rectangle around images or underline 
-		// differences in text elements red
-		Graphics g = diffimg.getGraphics();
-		g.setColor(Color.RED);
-		for (PDFEntryHolder pdfEntryHolder : entryHolders) 
-		{
-			// check if there are any differences
-			if(!pdfEntryHolder.isDifferent())
-				continue;
-			
-			int entryX = (int)(pdfEntryHolder.getX() * IMAGE_SCALER);
-			int entryY = (int)(pdfEntryHolder.getY() * IMAGE_SCALER);
-			int entryWidth = (int)(pdfEntryHolder.getWidth() * IMAGE_SCALER);
-			int entryHeight = (int)(pdfEntryHolder.getHeight() * IMAGE_SCALER);
-			
-			// draw rectangle
-			if(pdfEntryHolder instanceof PDFImageHolder)
-				g.drawRect(entryX, entryY, entryWidth, entryHeight);
-			// underline text
-			else if(pdfEntryHolder instanceof PDFTextHolder)
-				g.drawLine(entryX, entryY+entryHeight, entryX+entryWidth, entryY+entryHeight);
-				
-		}		
-		
-		
-		return diffimg;
-	}
 	
 	/**
 	 * The given entry holder mark those places in the image, which are interesting.
@@ -270,8 +193,8 @@ public class PDFVisualComparator extends AbstractPDFCompare {
 		int pageHeight = pageImgPDF1.getHeight();
 		
 		// 1d pixel array
-		int[] img1Pixels = getPixelArray(1, pageWidth*pageHeight);
-		int[] img2Pixels = getPixelArray(2, pageWidth*pageHeight);
+		int[] img1Pixels = pdfVisualiseDifference.getPixelArray(1, pageWidth*pageHeight);
+		int[] img2Pixels = pdfVisualiseDifference.getPixelArray(2, pageWidth*pageHeight);
 		
 		// copy pixel array
 		pageImgPDF1.getRGB(0, 0, pageWidth, pageHeight, img1Pixels, 0, pageWidth);
@@ -284,10 +207,10 @@ public class PDFVisualComparator extends AbstractPDFCompare {
 			int diffValue = 0, diffValueL1 = 0, diffValueL2 = 0;
 			
 			// dimension of the entry holder for the current zoom factor
-			int entryX = (int)(pdfEntryHolder.getX() * IMAGE_SCALER);
-			int entryY = (int)(pdfEntryHolder.getY() * IMAGE_SCALER);
-			int entryWidth = (int)(pdfEntryHolder.getWidth() * IMAGE_SCALER);
-			int entryHeight = (int)(pdfEntryHolder.getHeight() * IMAGE_SCALER);
+			int entryX = (int)(pdfEntryHolder.getX() * PDFVisualiseDifference.IMAGE_SCALER);
+			int entryY = (int)(pdfEntryHolder.getY() * PDFVisualiseDifference.IMAGE_SCALER);
+			int entryWidth = (int)(pdfEntryHolder.getWidth() * PDFVisualiseDifference.IMAGE_SCALER);
+			int entryHeight = (int)(pdfEntryHolder.getHeight() * PDFVisualiseDifference.IMAGE_SCALER);
 			
 			// pixel at the edge are sometimes more important
 			double pixelImportance = 1;
@@ -325,8 +248,6 @@ public class PDFVisualComparator extends AbstractPDFCompare {
 					
 					// calc average difference and maximal difference
 					double meanColorDiff = (double)(r_diff+g_diff+b_diff) / 3;
-					int maxColorDiff = (r_diff < g_diff) ? g_diff : r_diff;
-					maxColorDiff = (maxColorDiff < b_diff) ? maxColorDiff : b_diff;
 					
 					// pixel at the edge have a higher value
 					if(pdfEntryHolder instanceof PDFImageHolder)
@@ -338,12 +259,13 @@ public class PDFVisualComparator extends AbstractPDFCompare {
 						pixelImportance = 1 + sqrtDeviation;
 					}
 					
-					// remember differences
+					// count the different pixel
 					if(meanColorDiff > 5)
 						diffValue += 1 * pixelImportance;
 					
+					// calc L1 and L2 metric
 					diffValueL1 += meanColorDiff * pixelImportance;
-					diffValueL2 += (meanColorDiff * meanColorDiff * pixelImportance);
+					diffValueL2 += (meanColorDiff * pixelImportance) * (meanColorDiff * pixelImportance);
 				}
 			}
 			
@@ -367,13 +289,13 @@ public class PDFVisualComparator extends AbstractPDFCompare {
 	{
 		boolean isDifferent = false;
 		
-		int entryWidth = (int)(entryHolder.getWidth() * IMAGE_SCALER);
-		int entryHeight = (int)(entryHolder.getHeight() * IMAGE_SCALER);
+		int entryWidth = (int)(entryHolder.getWidth() * PDFVisualiseDifference.IMAGE_SCALER);
+		int entryHeight = (int)(entryHolder.getHeight() * PDFVisualiseDifference.IMAGE_SCALER);
 		int pixelAmount = entryHeight * entryWidth;
 		double relativeDiff = (double)diffValue / pixelAmount;
 		
 		// does the value exceed a threshold
-		if(relativeDiff > 0.1)
+		if(relativeDiff > 0.1) // 10%
 		{
 			isDifferent = true;
 			
@@ -395,64 +317,4 @@ public class PDFVisualComparator extends AbstractPDFCompare {
 		
 		entryHolder.setDifferent(isDifferent);
 	}
-
-	/**
-	 * convert pdf page to image
-	 * 
-	 * @param page
-	 * @return
-	 * @throws IllegalArgumentException
-	 */
-	private BufferedImage convertPage(PDFPage page) throws IllegalArgumentException {
-
-			// get the width and height for the doc at the default zoom
-			Rectangle rect = new Rectangle(0, 0, (int) page.getBBox().getWidth(), (int) page.getBBox().getHeight());
-			
-			int pageWidth = (int) (rect.width * IMAGE_SCALER);
-			int pageHeight = (int) (rect.height * IMAGE_SCALER);
-			
-			BufferedImage bImg = (BufferedImage) page.getImage(pageWidth, pageHeight, // width & height
-					rect, // clip rect
-					null, // null for the ImageObserver
-					true, // fill background with white
-					true // block until drawing is done
-					);
-			
-			return bImg;
-	}
-	
-	/**
-	 * reuse the allocated memory 
-	 * 
-	 * @param arraynumber
-	 * @param arraysize
-	 * @return
-	 */
-	private int[] getPixelArray(int arraynumber, int arraysize)
-	{
-	    Map<Integer, intArray> map = intarrays.get();
-	    if (null == map) {
-	        map = new HashMap<Integer, PDFVisualComparator.intArray>(3);
-            intarrays.set(map);
-	    }
-		if(!map.containsKey(arraynumber))
-			map.put(arraynumber, new intArray(arraysize));
-			
-		intArray intarr = map.get(arraynumber);
-			
-		if(intarr.arr.length != arraysize)
-			intarr.arr = new int[arraysize];
-		
-		return intarr.arr;
-	}
-	
-	class intArray
-	{
-		public int[] arr;
-		public intArray(int size)
-		{
-			arr = new int[size];
-		}
-	}
-
 }

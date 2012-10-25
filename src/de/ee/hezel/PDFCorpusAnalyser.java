@@ -49,6 +49,7 @@ import de.ee.hezel.logger.ICompareLogger;
 import de.ee.hezel.model.PDFHolder;
 import de.ee.hezel.model.PDFInfoHolder;
 import de.ee.hezel.model.PDFPageHolder;
+import de.ee.hezel.model.PDFInfoHolder.DifferenceType;
 import de.ee.hezel.model.pdfelemente.PDFImageHolder;
 import de.ee.hezel.model.pdfelemente.PDFTextHolder;
 
@@ -79,35 +80,41 @@ public class PDFCorpusAnalyser extends AbstractPDFCompare {
 	 * Create a simple PDF structure.
 
 	 * @param PDFInfoHolder contains the comparing pdfs
+	 * @throws Exception 
 	 */
-	public void analyse(PDFInfoHolder pdfInfoHolder)
+	public void analyse(PDFInfoHolder pdfInfoHolder) throws Exception
 	{
+		// can't analize if there is no document
+		if(pdfInfoHolder.getDifferent() == DifferenceType.MISSINGDOCUMENT)
+			return;
+		
 		Document pdfFile1 = new Document();
 		Document pdfFile2 = new Document();
 		
 		try {
-			// get pdf document
+			// get pdf document -> create a PDFHolder objects, which contains the entire structure of the document
 			pdfFile1.setFile(pdfInfoHolder.getPDFFile1().getAbsolutePath());
-			pdfFile2.setFile(pdfInfoHolder.getPDFFile2().getAbsolutePath());
-								
-			// compare the number of pages
-			if(pdfFile1.getNumberOfPages() != pdfFile2.getNumberOfPages())
-			{
-				pdfInfoHolder.setDifferent(true);
-				diff.log(pdfInfoHolder.getFilename()+": Different amount of pages: "+pdfFile1.getNumberOfPages() +" to "+pdfFile2.getNumberOfPages());
-			}
-			
-			// create a PDFHolder objects, which contains the entiere structure of the pdf documents
 			pdfInfoHolder.setPDFStructure1(analysePDF(pdfFile1, pdfInfoHolder));
-			pdfInfoHolder.setPDFStructure2(analysePDF(pdfFile2, pdfInfoHolder));				
+			
+			pdfFile2.setFile(pdfInfoHolder.getPDFFile2().getAbsolutePath());
+			pdfInfoHolder.setPDFStructure2(analysePDF(pdfFile2, pdfInfoHolder));	
+			
 		} catch (Exception e) {
-			log.error(pdfInfoHolder.getFilename()+": "+e.getMessage(), e);
-		} finally {
+			
 			pdfFile1.dispose();
 			pdfFile2.dispose();
+			
+			throw new Exception(pdfInfoHolder.getFilename()+": Could not load PDF Structure. Reason: "+e.getMessage(), e);
 		}
+		
+		// check for different page amount
+		if(pdfInfoHolder.getPDF1().getNumPages() != pdfInfoHolder.getPDF2().getNumPages())
+		{
+			pdfInfoHolder.setDifferent(DifferenceType.MISSINGPAGE);
+			diff.log(pdfInfoHolder.getFilename()+": Different amount of pages: "+pdfFile1.getNumberOfPages() +" to "+pdfFile2.getNumberOfPages());
+		}	
 	}
-
+	
 	/**
 	 * Exctract the structure of the pdf document and save it in the pdfholder object
 	 * 
@@ -203,10 +210,9 @@ public class PDFCorpusAnalyser extends AbstractPDFCompare {
 	/**
 	 * Run thru the given folders and find pdf document which have the same name.
 	 * For every pair, a PDFInfoHolder objects gets created.
-
 	 * 
-	 * @param path for the 1st directory
-	 * @param path for the 2nd directory
+	 * @param pdfs1 for the 1st directory
+	 * @param pdfs2 for the 2nd directory
 	 * @param prefix 
 	 * @return list of all pdf pairs
 	 */
@@ -228,36 +234,24 @@ public class PDFCorpusAnalyser extends AbstractPDFCompare {
             
 			//get all pdf file sin this folder
 			String[] pdfDocuments1 = pdfs1.list(filter);
-			String[] pdfDocuments2 = pdfs2.list(filter);
 			
 			for (int i=0; i<pdfDocuments1.length; i++) 
 			{	
 				// get the pdf file name
 			    String pdfFilename1 = pdfDocuments1[i];
 			    
-			    // find the counterpart
-			    boolean foundCounterPart = false;
-			    for (String pdfFilename2 : pdfDocuments2) {
-					if(pdfFilename1.equalsIgnoreCase(pdfFilename2))
-					{
-						// get the path for both pdf files
-						File pdfFile1 = new File(pdfs1, pdfFilename1);
-						File pdfFile2 = new File(pdfs2, pdfFilename1);
-						
-						// bind them together in a PDFInfoHolder objects
-						PDFInfoHolder newPDFInfoHolder = new PDFInfoHolder(pdfFile1, pdfFile2);
-						
-						// no differences found yet
-						if(newPDFInfoHolder.isDifferent() == false)
-							pdfInfoHolders.add(newPDFInfoHolder);
-						
-						foundCounterPart = true;
-					}
-				}
-			    
-			    if(!foundCounterPart)
-					log.info("Could not find "+pdfFilename1+" in "+pdfs2.getAbsolutePath());
+				// get the path for both pdf files
+				File pdfFile1 = new File(pdfs1, pdfFilename1);
+				File pdfFile2 = new File(pdfs2, pdfFilename1);
+				
+				// bind them together in a PDFInfoHolder objects
+				PDFInfoHolder newPDFInfoHolder = new PDFInfoHolder(pdfFile1, pdfFile2);
+
+				// remember them all
+				pdfInfoHolders.add(newPDFInfoHolder);
 			}
+			
+			// TODO what should happen if there are less reference documents than new generated ones
 		}
 		else
 		{

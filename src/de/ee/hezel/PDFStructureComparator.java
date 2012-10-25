@@ -30,6 +30,7 @@ import de.ee.hezel.logger.ICompareLogger;
 import de.ee.hezel.model.PDFHolder;
 import de.ee.hezel.model.PDFInfoHolder;
 import de.ee.hezel.model.PDFPageHolder;
+import de.ee.hezel.model.PDFInfoHolder.DifferenceType;
 import de.ee.hezel.model.pdfelemente.PDFEntryHolder;
 import de.ee.hezel.model.pdfelemente.PDFTextHolder;
 
@@ -84,7 +85,7 @@ public class PDFStructureComparator extends AbstractPDFCompare {
 			// missing the counter part
 			if(pdfHolder1 == null || pdfHolder2 == null)
 			{
-				pdfInfoHolder.setDifferent(true);
+				pdfInfoHolder.setDifferent( DifferenceType.VISUAL);
 				return;
 			}
 			

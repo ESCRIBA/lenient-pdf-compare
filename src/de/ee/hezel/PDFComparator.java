@@ -30,6 +30,7 @@ import org.apache.log4j.Logger;
 
 import de.ee.hezel.logger.DifferenceLogger;
 import de.ee.hezel.model.PDFInfoHolder;
+import de.ee.hezel.model.PDFInfoHolder.DifferenceType;
 import de.ee.hezel.model.PDFPageHolder;
 import de.ee.hezel.util.AbstractJob;
 import de.ee.hezel.util.Job;
@@ -80,8 +81,9 @@ public class PDFComparator implements JobListener {
 			CompareJob compareJob = new CompareJob(outputDir, pdfInfoHolder);
 			compareJob.addJobListener(this);
 			queue.addJob(compareJob);
-			
 		}
+		
+		// waiting for all jobs to be finished
         while (queue.hasJobs()) {
             try {
                 synchronized (queue) {
@@ -110,10 +112,10 @@ public class PDFComparator implements JobListener {
         private boolean foundDifference;
         private PDFInfoHolder pdfInfoHolder;
 
-        private final PDFVisualComparator pdfVisualComparator;
-        private final PDFVisualiseDifference pdfVisualiseDifference;
-        private final PDFStructureComparator pdfStructureComparator;
-    	private final PDFCorpusAnalyser pdfCorpusAnaliser;
+        private PDFVisualComparator pdfVisualComparator;
+        private PDFVisualiseDifference pdfVisualiseDifference;
+        private PDFStructureComparator pdfStructureComparator;
+    	private PDFCorpusAnalyser pdfCorpusAnaliser;
         
         CompareJob(File outputDir, PDFInfoHolder pdfInfoHolder) {
             this.outputDir = outputDir;
@@ -124,8 +126,8 @@ public class PDFComparator implements JobListener {
             dlog = new DifferenceLogger(logPath, pdfInfoHolder.getFilename());
  
             pdfCorpusAnaliser = new PDFCorpusAnalyser(dlog);
-            pdfVisualComparator = new PDFVisualComparator(dlog, pdfInfoHolder);
-            pdfVisualiseDifference = new PDFVisualiseDifference(dlog, pdfInfoHolder);
+            pdfVisualComparator = new PDFVisualComparator(outputDir, dlog, pdfInfoHolder);
+            pdfVisualiseDifference = new PDFVisualiseDifference(outputDir, dlog, pdfInfoHolder);
             pdfStructureComparator = new PDFStructureComparator((compareType == 1), dlog, pdfInfoHolder);
 	    }
 
@@ -133,44 +135,49 @@ public class PDFComparator implements JobListener {
     	 * Start the analyze process.
     	 * Find and mark the differences.
     	 * Output them in a difference-image
+    	 * @throws Exception 
     	 */
         @Override
         protected void executeJobAction() {
-            
-            long start1 = System.currentTimeMillis();
-            log.info(pdfInfoHolder.getFilename()+": Process "+pdfInfoHolder.getFilename()+".pdf");
-            
-            // Analyze the content of the pdf document
-            log.info(pdfInfoHolder.getFilename()+": analyse PDF structure ...");
-            pdfCorpusAnaliser.analyse(pdfInfoHolder);
-            
-            // compare SIMPLE or STRUCTURAL
-            log.info(pdfInfoHolder.getFilename()+": compare PDF structure ...");
-            pdfStructureComparator.compare();
-            
-            // compare VISUAL or simple display the already found differences
-            log.info(pdfInfoHolder.getFilename()+": visualise differences ...");
-            if(compareType == 3)
-                pdfVisualComparator.compare(outputDir);
-            else
-                pdfVisualiseDifference.visualise(outputDir);
-            
-            // print the results
-            if(pdfInfoHolder.isDifferent())
-            {
-                foundDifference = true;
-                printResult(pdfInfoHolder);
-            }
-            else
-            	log.info(pdfInfoHolder.getFilename()+": no differences found");
-            
-            if(pdfInfoHolder.isDifferent())
-                foundDifference = true;
-            
+
+        	long start1 = System.currentTimeMillis();
+        	try {
+        		 // load the pdf file content
+        		 pdfInfoHolder.loadPDFFiles();
+                 
+                 log.info(pdfInfoHolder.getFilename()+": Process "+pdfInfoHolder.getFilename()+".pdf");
+                 
+                 // Analyze the content of the pdf document
+                 log.info(pdfInfoHolder.getFilename()+": analyse PDF structure ...");
+                 pdfCorpusAnaliser.analyse(pdfInfoHolder);
+                 
+                 // compare SIMPLE or STRUCTURAL
+                 log.info(pdfInfoHolder.getFilename()+": compare PDF structure ...");
+                 pdfStructureComparator.compare();
+                 
+                 // compare VISUAL and print the result or simply display the already found differences
+                 log.info(pdfInfoHolder.getFilename()+": visualise differences ...");
+                 if(compareType == 3)
+                     pdfVisualComparator.compare();
+                 else
+                     pdfVisualiseDifference.visualise();
+                 
+                 // print the results
+                 printResult(pdfInfoHolder);
+
+                 // found differences!?
+                 foundDifference = pdfInfoHolder.isDifferent();
+                 
+			} catch (Exception e) {
+				log.error(pdfInfoHolder.getFilename()+":"+e.getMessage(), e);
+			} 
+
+        	// calc time needed
             long end1 = System.currentTimeMillis();
             log.info(pdfInfoHolder.getFilename()+": processing took "+ (end1-start1)+"ms");
             log.info("");
             
+        	// release all resources
             releaseResources();
         }
 
@@ -182,13 +189,22 @@ public class PDFComparator implements JobListener {
         {
         	if(dlog != null)
         		dlog.releaseResources();
+        	
+        	// are not needed anymore
+        	dlog = null;
+        	pdfInfoHolder.releasePDFFiles();
+        	pdfInfoHolder = null;
+        	pdfCorpusAnaliser = null;
+        	pdfVisualComparator = null;
+        	pdfVisualiseDifference = null;
+        	pdfStructureComparator = null;
         }
 	}
 
 	
 	private void printResult(PDFInfoHolder pdfInfoHolder)
 	{
-		if(pdfInfoHolder.isDifferent())
+		if(pdfInfoHolder.isDifferent() && pdfInfoHolder.getDifferent() != DifferenceType.MISSINGDOCUMENT)
 		{
 			String differencesOnPage = "";
 			for (PDFPageHolder pdfPageHolder : pdfInfoHolder.getPDFStructure1().getPageHolders()) {
@@ -200,6 +216,8 @@ public class PDFComparator implements JobListener {
 			}	
 			log.info(pdfInfoHolder.getFilename()+": found differences on pages: "+differencesOnPage);
 		}
+        else
+         	log.info(pdfInfoHolder.getFilename()+": no differences found");
 	}
 
 }

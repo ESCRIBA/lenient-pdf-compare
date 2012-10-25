@@ -24,6 +24,8 @@
 package de.ee.hezel.model;
 
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
@@ -42,7 +44,9 @@ import com.sun.pdfview.PDFFile;
  * @author hezeln
  *
  */
-public class PDFInfoHolder {
+public class PDFInfoHolder 
+{	
+	public enum DifferenceType { NONE, MISSINGDOCUMENT, MISSINGPAGE, MISSINGSTRUCTURE, VISUAL };
 	
 	static Logger log = Logger.getLogger(PDFInfoHolder.class.getName());
 	
@@ -52,19 +56,112 @@ public class PDFInfoHolder {
 	private PDFHolder pdfStructure1;
 	private PDFHolder pdfStructure2;
 	
+	private DifferenceType difference;
+	
+	// memory demanding resources
 	private PDFFile pdf1;
 	private PDFFile pdf2;
-	
-	private boolean isDifferent;
 	
 	public PDFInfoHolder(File pdfF1, File pdfF2)
 	{
 		this.pdfFile1 = pdfF1;
 		this.pdfFile2 = pdfF2;
-		this.isDifferent = false;	
-		
-		loadPDFFiles(pdfF1, pdfF2);
+		this.difference = DifferenceType.NONE;
 	}
+	
+	public void loadPDFFiles() throws Exception
+	{
+        try {
+            pdf1 = loadPDFFile(this.pdfFile1);
+        } catch (IOException e) {
+        	throw new Exception("Unable to load reference PDF: " + this.pdfFile1.getName() + ". Reason: " + e.getMessage(), e);
+        }
+        
+        try {
+            pdf2 = loadPDFFile(this.pdfFile2);
+        } catch (IOException e) {
+        	log.error("Unable to load PDF file: " + this.pdfFile1.getName() + ". Reason: " + e.getMessage(), e);
+        	this.difference = DifferenceType.MISSINGDOCUMENT;
+        }
+     }
+	
+	/**
+	 * load pdf data from file
+	 * 
+	 * @param pdfname
+	 * @return
+	 * @throws IOException
+	 */
+	private PDFFile loadPDFFile(File pdfFile) throws IOException
+	{
+		// load the pdf file in the byte buffer
+//		RandomAccessFile raf = new RandomAccessFile(pdfFile, "r");
+//		FileChannel channel = raf.getChannel();
+//		ByteBuffer buf = channel.map(FileChannel.MapMode.READ_ONLY, 0, channel.size());
+//		
+//		PDFFile pdf = new PDFFile(buf);
+//		channel.close();
+//		raf.close();
+		
+		// http://stackoverflow.com/questions/6112686/reduce-number-of-opened-files-in-java-code
+		FileInputStream stream = null;
+		FileChannel channel = null;
+		PDFFile pdf = null;
+
+		try {
+			stream = new FileInputStream(pdfFile);
+		    channel = stream.getChannel();
+			ByteBuffer buf = channel.map(FileChannel.MapMode.READ_ONLY, 0, channel.size());
+			pdf = new PDFFile(buf);
+		} catch (IOException e) {
+		    // handle exception
+		} finally {
+		    if (channel != null)
+		    	channel.close();
+		    if (stream != null)
+		    	stream.close();
+		}
+
+		return pdf;
+	}
+	
+	public void releasePDFFiles()
+	{
+		pdf1 = null;
+		pdf2 = null;
+     }
+	
+	public boolean checkDifference()
+	{
+		// überprüfe welche der beiden PDFs an welcher stelle unterschiedlich sind
+		boolean isPDF1Diff = pdfStructure1.checkDifference();
+		boolean isPDF2Diff = pdfStructure2.checkDifference();
+		
+		if(difference != DifferenceType.VISUAL)
+			difference =  DifferenceType.VISUAL;
+		
+		// überprüfe nur die erste Struktur
+		return isPDF1Diff || isPDF2Diff || isDifferent();
+	}
+
+	
+	// ------------------------------------- getter and setter -----------------------------------------
+	public PDFHolder getPDFStructure2() {
+		return pdfStructure2;
+	}
+
+	public void setPDFStructure2(PDFHolder pdfStructure2) {
+		this.pdfStructure2 = pdfStructure2;
+	}
+
+	public PDFHolder getPDFStructure1() {
+		return pdfStructure1;
+	}
+
+	public void setPDFStructure1(PDFHolder pdfStructure1) {
+		this.pdfStructure1 = pdfStructure1;
+	}
+	
 
 	public File getPDFFile1() {
 		return pdfFile1;
@@ -101,76 +198,16 @@ public class PDFInfoHolder {
 	}
 
 
+	public DifferenceType getDifferent() {
+		return difference;
+	}
+	
 	public boolean isDifferent() {
-		return isDifferent;
+		return (difference != DifferenceType.NONE);
 	}
 
-	public void setDifferent(boolean isDifferent) {
-		this.isDifferent = isDifferent;
+	public void setDifferent(DifferenceType different) {
+		this.difference = different;
 	}
 	
-	public boolean checkDifference()
-	{
-		// überprüfe welche der beiden PDFs an welcher stelle unterschiedlich sind
-		boolean isPDF1Diff = pdfStructure1.checkDifference();
-		boolean isPDF2Diff = pdfStructure2.checkDifference();
-		
-		// überprüfe nur die erste Struktur
-		this.isDifferent = isPDF1Diff || isPDF2Diff || this.isDifferent;
-		return this.isDifferent;
-	}
-
-	public PDFHolder getPDFStructure2() {
-		return pdfStructure2;
-	}
-
-	public void setPDFStructure2(PDFHolder pdfStructure2) {
-		this.pdfStructure2 = pdfStructure2;
-	}
-
-	public PDFHolder getPDFStructure1() {
-		return pdfStructure1;
-	}
-
-	public void setPDFStructure1(PDFHolder pdfStructure1) {
-		this.pdfStructure1 = pdfStructure1;
-	}
-	
-	private void loadPDFFiles(File pdfF1, File pdfF2)
-	{
-        try {
-            pdf1 = loadPDFFile(pdfF1);
-        } catch (IOException e) {
-            log.error("Unable to load PDF file: " + pdfF1.getName() + ". Reason: " + e.getMessage(), e);
-            this.isDifferent = true;
-        }
-        
-        try {
-            pdf2 = loadPDFFile(pdfF2);
-        } catch (IOException e) {
-        	log.error("Unable to load PDF file: " + pdfF2.getName() + ". Reason: " + e.getMessage(), e);
-        	this.isDifferent = true;
-        }
-	}
-	
-	/**
-	 * load pdf data from file
-	 * 
-	 * @param pdfname
-	 * @return
-	 * @throws IOException
-	 */
-	private PDFFile loadPDFFile(File pdfFile) throws IOException
-	{
-		// load the pdf file in the byte buffer
-		RandomAccessFile raf = new RandomAccessFile(pdfFile, "r");
-		FileChannel channel = raf.getChannel();
-		ByteBuffer buf = channel.map(FileChannel.MapMode.READ_ONLY, 0, channel.size());
-		
-		PDFFile s = new PDFFile(buf);
-		channel.close();
-		raf.close();
-
-		return s;
-	}
 }

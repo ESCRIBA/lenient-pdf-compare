@@ -27,6 +27,8 @@ import java.io.File;
 import java.io.IOException;
 import java.util.Properties;
 
+import javax.swing.JOptionPane;
+
 import org.apache.commons.io.FileUtils;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
@@ -83,7 +85,7 @@ public class PDFCompareMain {
 		
 		boolean output = false;
 		File targetPath = null, logPath = null;
-		int compareType = 1; // Modes: SIMPLE/STRUCTURAL/VISUAL
+		int compareType = 1; // simple (Modes: SIMPLE/STRUCTURAL/VISUAL)
         String prefix = null;
 		
 		// read the incoming arguments
@@ -105,29 +107,8 @@ public class PDFCompareMain {
 		    }
 		}
 		
-		// delete the old difference image
-		if(targetPath != null && targetPath.exists()) {
-//		    int confirmation = JOptionPane.showConfirmDialog(null, "Output directory not empty. Delete all contents of '" + targetPath + "' and continue?", "Confirmation", JOptionPane.YES_NO_OPTION);
-//		    if (confirmation == JOptionPane.YES_OPTION) {
-//                try {
-//                    FileUtils.deleteDirectory(targetPath);
-//                } catch (IOException e1) {
-//                    throw new RuntimeException("Unable to clean output directory: " + e1.getMessage(), e1);
-//                }
-//		    } else {
-//		        return;
-//		    }
-//		    targetPath.mkdirs();
-			
-			try {
-				FileUtils.deleteDirectory(targetPath);
-			} catch (IOException e1) {
-				throw new RuntimeException("Unable to clean output directory: " + e1.getMessage(), e1);
-			}
-			targetPath.mkdirs();
-		}
-		if(!targetPath.exists())
-			targetPath.mkdir();
+		// create or clear the output path
+		checkOutputPath(targetPath);
 		
 		// configure log4j
 		Properties props = getLog4jProperties(output, logPath);
@@ -145,20 +126,38 @@ public class PDFCompareMain {
 				log.error("[Path 2] does not exist");
 		}
 
-		// compare the files in path 1 with the files in path 2 and save the
-		// results in path 3 (if given)
+		// compare the files in path 1 with the files in path 2 and 
+		// save the results in path 3 (if given)
 		PDFComparator pdfComparer = new PDFComparator(logPath, compareType);
         boolean foundDifference = pdfComparer.run(path1, path2, targetPath, prefix);
 		
-		// if only a single number should be returned
-		if(!output)
-		{
-			// no differences
-			if(!foundDifference)
-				System.exit(0);
-			else
-				System.exit(1);
+        // exit parameter (interesting for jenkins)
+		System.exit(foundDifference ? 1 : 0);
+	}
+	
+	/**
+	 * delete the old difference image and create the output path if not exists
+	 * 
+	 * @param targetPath
+	 */
+	public static void checkOutputPath(File targetPath)
+	{
+		
+		if(targetPath != null && targetPath.exists()) {
+			// shows a window which asks you if the old content of the output directory should be deleted
+//		    int confirmation = JOptionPane.showConfirmDialog(null, "Output directory not empty. Delete all contents of '" + targetPath + "' and continue?", "Confirmation", JOptionPane.YES_NO_OPTION);
+//		    if (confirmation == JOptionPane.NO_OPTION)
+//		        return;
+
+			try {
+				FileUtils.deleteDirectory(targetPath);
+			} catch (IOException e1) {
+				throw new RuntimeException("Unable to clean output directory: " + e1.getMessage(), e1);
+			}
+			targetPath.mkdirs();
 		}
+		if(!targetPath.exists())
+			targetPath.mkdir();
 	}
 	
 	public static Properties getLog4jProperties(boolean output, File logPath) {				
@@ -188,7 +187,7 @@ public class PDFCompareMain {
 		props.setProperty("log4j.appender.resultfile.File", logfile1.getAbsolutePath());
 		props.setProperty("log4j.appender.resultfile.Append", "false");
 		
-		// Filter in Properties ab 1.2.16 
+		// filters in property files are supported from 1.2.16 and above 
 		// http://logging.apache.org/log4j/1.2/apidocs/org/apache/log4j/PropertyConfigurator.html
 		props.setProperty("log4j.appender.resultfile.filter.ID", "org.apache.log4j.varia.LevelRangeFilter");
 		props.setProperty("log4j.appender.resultfile.filter.ID.LevelMin", "INFO");
